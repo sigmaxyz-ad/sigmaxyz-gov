@@ -1,0 +1,7 @@
+{
+  "name": "sigmaxyz-fixed",
+  "owner": { "name": "SIGMAXYZ AD Team" },
+  "plugins": [
+    { "name": "sigmaxyz-gov", "source": "./sigmaxyz-gov" }
+  ]
+}

@@ -1,0 +1,91 @@
+{
+  "version": "2.0",
+  "origin": "ae-core/policies/dlp_patterns.json (v1.0) を流用し、秘密情報・API キーパターンを追加",
+  "patterns": [
+    {
+      "name": "my_number",
+      "description": "マイナンバー候補（12 桁数字列）",
+      "pattern": "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b",
+      "severity": "warning",
+      "action": "warn",
+      "escalate_keywords": ["マイナンバー", "個人番号", "マイナ"]
+    },
+    {
+      "name": "credit_card",
+      "description": "クレジットカード候補（16 桁数字列）",
+      "pattern": "\\b(?:\\d{4}[-\\s]?){3}\\d{4}\\b",
+      "severity": "warning",
+      "action": "warn",
+      "escalate_keywords": ["カード", "クレジット", "card", "visa", "master", "amex"]
+    },
+    {
+      "name": "jp_phone",
+      "description": "日本の電話番号",
+      "pattern": "\\b0\\d{1,4}[-\\s]?\\d{1,4}[-\\s]?\\d{4}\\b",
+      "severity": "warning",
+      "action": "warn"
+    },
+    {
+      "name": "email_address",
+      "description": "メールアドレス",
+      "pattern": "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}",
+      "severity": "warning",
+      "action": "warn"
+    },
+    {
+      "name": "anthropic_key",
+      "description": "Anthropic API キー",
+      "pattern": "sk-ant-[A-Za-z0-9_\\-]{20,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "openai_key",
+      "description": "OpenAI API キー",
+      "pattern": "sk-(?:proj-)?[A-Za-z0-9_\\-]{20,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "google_api_key",
+      "description": "Google API キー",
+      "pattern": "AIza[0-9A-Za-z_\\-]{35}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "aws_access_key",
+      "description": "AWS アクセスキー ID",
+      "pattern": "AKIA[0-9A-Z]{16}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "github_token",
+      "description": "GitHub Personal Access Token",
+      "pattern": "gh[pousr]_[A-Za-z0-9]{36,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "private_key",
+      "description": "秘密鍵（PEM ヘッダ）",
+      "pattern": "-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "generic_secret_assignment",
+      "description": "コード内のシークレット直書き（api_key/secret/password/token = \"...\"）",
+      "pattern": "(?i)(api[_-]?key|secret|password|passwd|token)\\s*[:=]\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']",
+      "severity": "critical",
+      "action": "block"
+    }
+  ],
+  "keywords": {
+    "description": "機密ラベルが付いた文書を外部へ出さない",
+    "blocked": ["社外秘", "Confidential", "極秘", "取扱注意", "マル秘", "部外秘"],
+    "severity": "critical",
+    "action": "block"
+  }
+}

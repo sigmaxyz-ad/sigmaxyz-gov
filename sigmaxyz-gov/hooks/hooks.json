@@ -1,0 +1,35 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/session-banner.js\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-destructive-bash.js\"", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-secrets.js\"", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-secret-read.js\"", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-workspace-write.js\"", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/dlp-scan.js\"", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-personal-path.js\"", "timeout": 10 }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/guard-external-write.js\"", "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

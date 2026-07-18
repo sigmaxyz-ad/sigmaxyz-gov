@@ -1,0 +1,8 @@
+{
+    "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+    "name": "sigmaxyz-gov",
+    "displayName": "SIGMAXYZ Governance",
+    "version": "0.2.0",
+    "description": "全社強制の安全ガード(書込制限/秘密保護/DLP/破壊防止/外部流出防止/透明性宣言) — 過剰反応是正版(block→warn / 読取誤検知)",
+    "author": { "name": "SIGMAXYZ AD Team" }
+}

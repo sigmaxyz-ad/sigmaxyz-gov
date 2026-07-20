@@ -1,0 +1,214 @@
+# @claude bot — ユーザー別 seat + ユーザー別 PAT 方式（ADR-0010 改 / 個人権限踏襲）
+#
+# 【設計の要点】
+#  - Anthropic 認証（頭脳・課金）= @claude を叩いた本人の seat OAuth `CLAUDE_OAUTH_<LOGIN>`
+#  - GitHub 認証（手足・権限）   = @claude を叩いた本人の PAT      `GH_PAT_<LOGIN>`
+#    → GitHub で実際に触れる範囲は「本人の PAT が許す範囲」だけ。クロスリポ可・ただし本人権限に内包。
+#    → 例: mokuda(org owner相当PAT)=実質admin横断 / watanabe(member)=自分が触れるリポのみ。他人の brain は弾かれる。
+#    → org 全体・administration:write のアプリトークンは使わない（confused deputy を廃止）。
+#
+# 【enrollment（各人1回）】
+#  1) Claude: `claude setup-token` → org secret `CLAUDE_OAUTH_<LOGINを大文字・ハイフン→_>`
+#  2) GitHub: fine-grained PAT を発行 → org secret `GH_PAT_<同形式>`
+#     PAT 推奨スコープ: Resource owner=sigmaxyz-ad / Repository access=本人が触れる範囲 /
+#       Permissions: Contents=RW, Issues=RW, Pull requests=RW, Metadata=RO（必要なら Workflows=RW）/ 有効期限を設定
+#  どちらか未登録なら実行せず案内のみ（ToS・権限事故が構造的に起きない）。
+#
+# 【正本ルール】このファイル（_template/.github/workflows/claude.yml）が @claude bot の唯一の正本。
+#  - @claude を新規設定・改修するときは必ずここをベースに組む（参照正本）。他リポの claude.yml は
+#    構造差を持たせず、このファイルと内容一致させる（全リポ均一な bot 挙動を保証）。
+#  - 展開は ae-infra の bot-drift-check が本ファイルを取得し、内容ハッシュ不一致のリポへ差分 PR を開く。
+#  - ci-templates/claude.yml は文書参照用ミラー（正本ではない）。正本を変えたらミラーも一致させる。
+
+name: claude
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  issues:
+    types: [opened, assigned]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read          # 実書込は本人PATで行うため、ワークフロー既定権限は最小化
+  issues: write           # 未登録案内コメント用
+  pull-requests: write
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude')))
+    runs-on: ubuntu-latest
+    env:
+      # ── モデルID・ツール許可/禁止は複数ステップで共有するため一箇所に集約（ハードコード排除・ドリフト防止） ──
+      # モデルIDを更新するときはここだけ直す。model エイリアス方針: 既定=Opus / 降格先(Fable不可等)=Opus。
+      CLAUDE_MODEL_FABLE:   claude-fable-5
+      CLAUDE_MODEL_OPUS:    claude-opus-4-8
+      CLAUDE_MODEL_SONNET:  claude-sonnet-5
+      CLAUDE_MODEL_HAIKU:   claude-haiku-4-5-20251001
+      CLAUDE_MODEL_DEFAULT: claude-opus-4-8    # 明示指定も内容判定も無い時の既定
+      CLAUDE_MODEL_FALLBACK: claude-opus-4-8   # Fable不可(認可/課金エラー)や過負荷時の降格先
+      CLAUDE_ALLOWED_TOOLS: "Bash,Read,Write,Edit,Glob,Grep,WebFetch,WebSearch"
+      CLAUDE_DISALLOWED_TOOLS: 'Bash(rm -rf*),Bash(rm -fr*),Bash(sudo*),Bash(chmod 777*),Bash(curl*--data*),Bash(wget*--post-data*),Bash(*aws*configure*),Bash(*gcloud*),Bash(*gsutil*),Bash(*bq *),Bash(*git*config*--global*),Bash(*git*push*--force*),Bash(*git*reset*--hard*origin*)'
+    steps:
+      # ── トリガー本人を解決し、本人の seat OAuth と PAT を選択（どちらも単一受益者＝本人） ──
+      - name: Resolve triggering user → personal seat OAuth + PAT
+        id: tok
+        env:
+          ALL_SECRETS: ${{ toJSON(secrets) }}
+          ACTOR: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login || github.actor }}
+        run: |
+          set -euo pipefail
+          SUFFIX="$(printf '%s' "$ACTOR" | tr '[:lower:]-' '[:upper:]_')"
+          OAUTH_KEY="CLAUDE_OAUTH_${SUFFIX}"
+          PAT_KEY="GH_PAT_${SUFFIX}"
+          OAUTH="$(printf '%s' "$ALL_SECRETS" | jq -r --arg k "$OAUTH_KEY" '.[$k] // empty')"
+          PAT="$(printf '%s' "$ALL_SECRETS" | jq -r --arg k "$PAT_KEY" '.[$k] // empty')"
+          echo "actor=$ACTOR" >> "$GITHUB_OUTPUT"
+          echo "oauth_key=$OAUTH_KEY" >> "$GITHUB_OUTPUT"
+          echo "pat_key=$PAT_KEY" >> "$GITHUB_OUTPUT"
+          MISSING=""
+          [ -z "$OAUTH" ] && MISSING="$MISSING seat($OAUTH_KEY)"
+          [ -z "$PAT" ]   && MISSING="$MISSING PAT($PAT_KEY)"
+          if [ -n "$MISSING" ]; then
+            echo "::notice::$ACTOR 未登録:$MISSING — bot をスキップして案内します。"
+            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+            echo "enrolled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::add-mask::$OAUTH"
+          echo "::add-mask::$PAT"
+          echo "SEL_OAUTH=$OAUTH" >> "$GITHUB_ENV"
+          echo "SEL_PAT=$PAT" >> "$GITHUB_ENV"
+          echo "enrolled=true" >> "$GITHUB_OUTPUT"
+
+      # ── 未登録なら案内コメントのみ（赤バツにしない） ──
+      - name: Guide unenrolled user
+        if: steps.tok.outputs.enrolled == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --repo "${{ github.repository }}" --body \
+              "@${{ steps.tok.outputs.actor }} この @claude は **本人の seat + PAT 方式**です。未登録項目:${{ steps.tok.outputs.missing }}。
+            手順: (1) \`claude setup-token\` → org secret \`${{ steps.tok.outputs.oauth_key }}\` / (2) fine-grained PAT 発行 → org secret \`${{ steps.tok.outputs.pat_key }}\`。
+            登録後に再度 @claude してください（詳細: ae-infra/runbooks/claude-bot-per-user-seat.md）。" || true
+          fi
+
+      # ── 本人 PAT でチェックアウト（git 操作も本人名義・本人権限） ──
+      - name: Checkout
+        if: steps.tok.outputs.enrolled == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          token: ${{ env.SEL_PAT }}
+
+      # ── モデル選択：①本文の明示指定を最優先 → ②未指定なら内容から自動判定 ──
+      #   モデルはプロセス起動時にのみ決まるため、本文を読んで --model に橋渡しする。
+      #   方針: 既定は Opus（バランス）。ここぞ=Fable5 / 機械的な軽作業=Haiku / 軽め=Sonnet。
+      #   自動判定はキーワードベースのヒューリスティック（誤検出しうるので明示指定で上書き可）。
+      #   さらに --fallback-model claude-opus-4-8 で Fable 等が使えない seat でも Opus に自動降格。
+      - name: Select model (explicit override → content heuristic)
+        id: model
+        if: steps.tok.outputs.enrolled == 'true'
+        env:
+          BODY: ${{ github.event.comment.body || github.event.review.body || github.event.issue.body || github.event.issue.title || '' }}
+        run: |
+          set -euo pipefail
+          norm="$(printf '%s' "$BODY" | tr '[:upper:]' '[:lower:]')"
+
+          MODEL=""; REASON=""
+
+          # ① 明示指定（本文にモデル名があれば最優先で尊重）
+          #    PCRE のゼロ幅前後読みで単語境界判定（"octopus"→opus / "affable"→fable 等の誤検出を防ぐ）。
+          #    ・モデル名が1つだけ → それを採用。
+          #    ・2つ以上 → 優先順位や否定（"opusは避けて"等）を機械推測しない。既定にフォールバックし
+          #      「1つだけ明記して」と通知（自然言語の意図推測は誤りやすいため曖昧時は安全側に倒す）。
+          matched=""; last_kw=""; last_mid=""
+          for kv in "fable:$CLAUDE_MODEL_FABLE" "opus:$CLAUDE_MODEL_OPUS" "sonnet:$CLAUDE_MODEL_SONNET" "haiku:$CLAUDE_MODEL_HAIKU"; do
+            kw="${kv%%:*}"; mid="${kv#*:}"
+            if printf '%s' "$norm" | grep -qP "(?<![a-z0-9])${kw}(?![a-z])"; then
+              matched="$matched $mid"; last_kw="$kw"; last_mid="$mid"
+            fi
+          done
+          n="$(printf '%s' "$matched" | wc -w)"
+          if [ "$n" -eq 1 ]; then
+            MODEL="$last_mid"; REASON="explicit:$last_kw"
+          elif [ "$n" -ge 2 ]; then
+            MODEL="$CLAUDE_MODEL_DEFAULT"; REASON="ambiguous:multi→default"
+            echo "::notice::複数モデル指定を検出（$matched ）。意図を推測せず既定($CLAUDE_MODEL_DEFAULT)を使用。1つだけ明記してください。"
+          fi
+
+          # ② 明示指定が無ければ内容から自動判定（誤検出しうるので ::notice:: でモニタし語彙を運用調整）
+          if [ -z "$MODEL" ]; then
+            if printf '%s' "$norm" | grep -Eq '徹底|しっかり|厳密|網羅|深掘り|深く|重要|クリティカル|本番|リリース判定|設計レビュー|アーキ|セキュリティ|脆弱|thorough|comprehensive|critical|security|vulnerab|architecture|deep[ -]?dive|rigorous'; then
+              MODEL="$CLAUDE_MODEL_FABLE";   REASON="auto:critical"        # ここぞ = 難所/重要
+            elif printf '%s' "$norm" | grep -Eq '誤字|タイポ|typo|表記|文言|リネーム|rename|フォーマット|整形|format|lint|nit|一文字|ワンライナー'; then
+              MODEL="$CLAUDE_MODEL_HAIKU";   REASON="auto:trivial"         # 機械的な軽作業
+            elif printf '%s' "$norm" | grep -Eq '軽く|ちょっと|さっと|ざっと|簡単|手直し|quick|simple|minor|small'; then
+              MODEL="$CLAUDE_MODEL_SONNET";  REASON="auto:light"           # 軽め
+            else
+              MODEL="$CLAUDE_MODEL_DEFAULT"; REASON="auto:default"         # 既定（Opus）
+            fi
+          fi
+
+          is_fable=false; [ "$MODEL" = "$CLAUDE_MODEL_FABLE" ] && is_fable=true
+          echo "::notice::selected model=$MODEL ($REASON)"
+          echo "model_arg=--model $MODEL" >> "$GITHUB_OUTPUT"
+          echo "is_fable=$is_fable" >> "$GITHUB_OUTPUT"
+
+      # ── 頭脳=本人 seat OAuth / 手足=本人 PAT。まず選択モデルで実行 ──
+      #   --fallback-model は overload/unavailable 等の一時エラー時に Opus へ切替（billing/auth 系は対象外）。
+      - name: Run Claude Code (selected model)
+        id: run_primary
+        if: steps.tok.outputs.enrolled == 'true'
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ env.SEL_PAT }}
+          claude_code_oauth_token: ${{ env.SEL_OAUTH }}
+          claude_args: |
+            ${{ steps.model.outputs.model_arg }}
+            --fallback-model ${{ env.CLAUDE_MODEL_FALLBACK }}
+            --allowedTools "${{ env.CLAUDE_ALLOWED_TOOLS }}"
+            --disallowedTools "${{ env.CLAUDE_DISALLOWED_TOOLS }}"
+
+      # ── Opus 再実行の前に作業ツリーをクリーンな状態へ戻す ──
+      #   Fable 実行が「一部編集した後に失敗」した場合でも、Opus 再実行が汚れたツリー上から
+      #   再開して二重コミット等を起こさないよう、canonical な状態を取り直す。
+      - name: Reset workspace before Opus retry
+        if: steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          token: ${{ env.SEL_PAT }}
+          clean: true
+
+      # ── Fable を選んだ実行が失敗したら Opus で1回だけ再実行 ──
+      #   seat が Fable 未権限の場合に返るのは認可/課金系エラーで、--fallback-model は発火しない
+      #   （公式仕様: overload/unavailable/非リトライ server error のみ対象）。その保険として明示降格。
+      - name: Retry with Opus (Fable unavailable for this seat)
+        id: run_opus_fallback
+        if: steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          github_token: ${{ env.SEL_PAT }}
+          claude_code_oauth_token: ${{ env.SEL_OAUTH }}
+          claude_args: |
+            --model ${{ env.CLAUDE_MODEL_FALLBACK }}
+            --allowedTools "${{ env.CLAUDE_ALLOWED_TOOLS }}"
+            --disallowedTools "${{ env.CLAUDE_DISALLOWED_TOOLS }}"
+
+      # ── 本来の失敗（Opus 保険に該当しない or 再実行も失敗）はジョブを赤にして隠蔽しない ──
+      - name: Propagate genuine failure
+        if: ${{ steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && !(steps.model.outputs.is_fable == 'true' && steps.run_opus_fallback.outcome == 'success') }}
+        run: |
+          echo "::error::Claude 実行が失敗しました（Opus フォールバック対象外、または Opus 再実行も失敗）。ジョブログを確認してください。"
+          exit 1

@@ -1,10 +1,12 @@
-// hooklib.js — SIGMAXYZ AI ハーネス共通ライブラリ（Windows / Linux 両対応 / Node.js 単一ソース）
+// hooklib.js — SIGMAXYZ AI ハーネス共通ライブラリ（policy 駆動エンジン版）
 //
-// PreToolUse / SessionStart フックの共通処理:
-//   - stdin JSON の読み取り
-//   - パス解決（~ 展開・絶対化・OS 差吸収）
-//   - ユーザー自由領域(workspace)の判定
-//   - ブロック/許可の出力ヘルパ（exit 2 = ブロック・stderr をモデルに提示）
+// 設計: 「執行(enforcement)＝このコード/hook が必ず動く（TM が OS レベルで担保）」と
+//       「方針(policy)＝何を block/warn/off にするか（AD が managed settings の env で即時調整）」を分離。
+// policy の与え方（AD が Web Console の `env` で設定）:
+//   - GOV_POLICY_JSON            : 完全な policy(JSON文字列)。優先。
+//   - GOV_<GUARD>_MODE           : 個別ガードの mode = block | warn | off。例 GOV_PERSONAL_PATH_MODE
+//   guards[name].scan 等の追加パラメータも GOV_POLICY_JSON で与えられる。
+// policy 未設定でも各ガードは安全な既定値で動く（是正版の挙動）。
 
 'use strict';
 
@@ -13,20 +15,12 @@ const os = require('os');
 const path = require('path');
 
 // ---- stdin（フック入力 JSON）を読む -------------------------------------
-// PreToolUse: { tool_name, tool_input:{ command, file_path, ... }, cwd, ... }
 function readInput() {
   let raw = '';
-  try {
-    raw = fs.readFileSync(0, 'utf8'); // fd 0 = stdin
-  } catch (_) {
-    raw = '';
-  }
+  try { raw = fs.readFileSync(0, 'utf8'); } catch (_) { raw = ''; }
+  if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1); // BOM 耐性
   let data = {};
-  try {
-    data = raw ? JSON.parse(raw) : {};
-  } catch (_) {
-    data = {};
-  }
+  try { data = raw ? JSON.parse(raw) : {}; } catch (_) { data = {}; }
   const toolInput = data.tool_input || data.toolInput || {};
   return {
     raw,
@@ -39,104 +33,90 @@ function readInput() {
   };
 }
 
+// ---- policy（AD が env で即時調整） --------------------------------------
+let _pol = null;
+function policy() {
+  if (_pol) return _pol;
+  _pol = { guards: {} };
+  try { if (process.env.GOV_POLICY_JSON) { const p = JSON.parse(process.env.GOV_POLICY_JSON); if (p && typeof p === 'object') _pol = p; } } catch (_) {}
+  if (!_pol.guards) _pol.guards = {};
+  return _pol;
+}
+function guardMode(name, def) {
+  const g = policy().guards[name] || {};
+  const envKey = 'GOV_' + name.toUpperCase().replace(/-/g, '_') + '_MODE';
+  return String(g.mode || process.env[envKey] || def).toLowerCase();
+}
+function guardParam(name, key, def) {
+  const g = policy().guards[name] || {};
+  return g[key] !== undefined ? g[key] : def;
+}
+// mode に従って block / ask(warn) / allow(off) を出し分け
+function enforce(mode, message) {
+  mode = String(mode || '').toLowerCase();
+  if (mode === 'off') allow();
+  if (mode === 'block') block(message);
+  ask(message); // warn / ask
+}
+
 // ---- パス解決ヘルパ ------------------------------------------------------
 const HOME = os.homedir();
-
 function expandHome(p) {
   if (!p) return p;
   if (p === '~') return HOME;
   if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(HOME, p.slice(2));
   return p;
 }
-
-// 絶対パス化（相対は cwd 基準）。シンボリックリンクは展開しない（解決前の意図を見る）
 function toAbsolute(p, cwd) {
   if (!p) return '';
   const e = expandHome(p);
   return path.resolve(cwd || HOME, e);
 }
-
-// OS 差を吸収して比較用に正規化（Windows は小文字化・バックスラッシュ→スラッシュ）
 function normalize(p) {
   let n = path.resolve(p);
-  if (process.platform === 'win32') {
-    n = n.replace(/\\/g, '/').toLowerCase();
-  }
+  if (process.platform === 'win32') n = n.replace(/\\/g, '/').toLowerCase();
   return n;
 }
 
 // ---- ユーザー自由領域（workspace）判定 ----------------------------------
-// 許可される書込先:
-//   - <HOME>/workspace 配下（要件①：自由領域。スキル・ランタイムも ~/workspace 配下へ寄せる）
-//   - OS の一時ディレクトリ配下（os.tmpdir()）
-//   - 移設できない OS 固有のユーザー設定（VS Code 設定 / ~/.gitconfig）= 許可リスト例外
-//     ※ claude 設定・Scoop 等のランタイムは ~/workspace へ relocate する前提（CLAUDE_CONFIG_DIR 等）。
-//        そのため ~/.claude 等は relocate 済みで対象外（書込ブロック）。
 function allowedWriteRoots() {
   const roots = [
     path.join(HOME, 'workspace'),
     os.tmpdir(),
-    // OS 固有・移設不可のユーザー設定（限定的に許可）
-    path.join(HOME, '.config', 'Code'), // Linux: VS Code 設定のみ許可(~/.config 全体は許可しない)
-    path.join(HOME, 'AppData', 'Roaming', 'Code'), // Windows: VS Code ユーザー設定
-    path.join(HOME, '.gitconfig'), // git ユーザー設定（ファイル）
+    path.join(HOME, '.config', 'Code'),
+    path.join(HOME, 'AppData', 'Roaming', 'Code'),
+    path.join(HOME, 'AppData', 'Roaming', 'Claude'),
+    path.join(HOME, '.gitconfig'),
   ];
-  // Windows の代表的 tmp も明示
-  if (process.platform === 'win32' && process.env.TEMP) {
-    roots.push(process.env.TEMP);
-  }
+  if (process.platform === 'win32' && process.env.TEMP) roots.push(process.env.TEMP);
   return roots.map(normalize);
 }
-
 function isInsideWorkspace(absPath) {
   const target = normalize(absPath);
   return allowedWriteRoots().some((root) => target === root || target.startsWith(root + '/'));
 }
 
 // ---- 出力ヘルパ ----------------------------------------------------------
-// ブロック: exit 2 + stderr。stderr の文面がモデルに提示され、行動を是正させる。
 function block(message) {
   process.stderr.write(message.endsWith('\n') ? message : message + '\n');
   process.exit(2);
 }
-
-// 許可（何もしない）
-function allow() {
-  process.exit(0);
-}
-
-// 人間の承認を求める（exit 0 + JSON。permissionDecision=ask）。auto モードでも確認ダイアログが出る。
+function allow() { process.exit(0); }
 function ask(reason) {
-  process.stdout.write(
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'ask',
-        permissionDecisionReason: reason,
-      },
-    })
-  );
+  process.stdout.write(JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'ask', permissionDecisionReason: reason },
+  }));
   process.exit(0);
 }
-
-// 非ブロックの注意喚起（SessionStart 等で systemMessage を出す）
 function notify(systemMessage) {
-  try {
-    process.stdout.write(JSON.stringify({ systemMessage, continue: true, suppressOutput: false }));
-  } catch (_) {}
+  try { process.stdout.write(JSON.stringify({ systemMessage, continue: true, suppressOutput: false })); } catch (_) {}
   process.exit(0);
 }
 
 module.exports = {
   readInput,
-  expandHome,
-  toAbsolute,
-  normalize,
-  HOME,
-  allowedWriteRoots,
-  isInsideWorkspace,
-  block,
-  allow,
-  ask,
-  notify,
+  policy, guardMode, guardParam, enforce,
+  expandHome, toAbsolute, normalize, HOME,
+  allowedWriteRoots, isInsideWorkspace,
+  block, allow, ask, notify,
 };

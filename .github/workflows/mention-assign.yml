@@ -100,10 +100,9 @@ jobs:
           done
           [ "${#cands[@]}" -gt 0 ] || { echo "::notice::候補なし（既アサイン/権限外/除外済み）"; finish 0; }
 
-          mkdir -p mention-assign
-          jq -n --arg t "$TITLE" --arg x "$TEXT" \
-                --argjson c "$(printf '%s\n' "${cands[@]}" | jq -R . | jq -s .)" \
-                '{title:$t, text:$x, candidates:$c}' > mention-assign/input.json
+          # 判定用の input.json はここでは作らない。actions/checkout は既存の .git が無いとき
+          # `clean: false` でも "Deleting the contents of ..." でワークスペースを消すため、
+          # ここで書いたファイルは Judge ステップに届かない（実際に取りこぼしを起こした）。
           echo "::notice::候補: ${cands[*]}"
           finish "${#cands[@]}" "${cands[*]}"
 
@@ -127,13 +126,26 @@ jobs:
           echo "SEL_OAUTH=$OAUTH" >> "$GITHUB_ENV"
           echo "enrolled=true" >> "$GITHUB_OUTPUT"
 
-      # checkout は LLM の作業ディレクトリ用。①で作った input.json を消さないよう clean: false。
+      # checkout は LLM の作業ディレクトリ用。ワークスペースを消すので、判定入力は必ずこの後で作る。
       - name: Checkout
         if: steps.cand.outputs.count != '0' && steps.seat.outputs.enrolled == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 1
-          clean: false
+
+      # checkout の後に書くこと（前に書くと消える）。LLM には本文をプロンプトではなくファイルで渡す。
+      - name: Write judge input
+        if: steps.cand.outputs.count != '0'
+        env:
+          TITLE: ${{ github.event.issue.title }}
+          TEXT: ${{ github.event.comment.body || github.event.issue.body }}
+          CANDIDATES: ${{ steps.cand.outputs.candidates }}
+        run: |
+          set -euo pipefail
+          mkdir -p mention-assign
+          jq -n --arg t "$TITLE" --arg x "$TEXT" \
+                --argjson c "$(printf '%s\n' $CANDIDATES | jq -R . | jq -s 'map(select(length>0))')" \
+                '{title:$t, text:$x, candidates:$c}' > mention-assign/input.json
 
       # ── ③ LLM 判定（本文はデータとして Read させる＝プロンプト注入と引用崩れの回避）──
       - name: Judge who is actually being asked
@@ -169,6 +181,7 @@ jobs:
         env:
           CANDIDATES: ${{ steps.cand.outputs.candidates }}
           ENROLLED: ${{ steps.seat.outputs.enrolled }}
+          TEXT: ${{ github.event.comment.body || github.event.issue.body }}
         run: |
           set -uo pipefail
           picked=""
@@ -180,9 +193,10 @@ jobs:
             mode="llm"
           else
             # フォールバック: 明示的な依頼表現がある場合のみ。文脈が読めないぶん保守的に。
-            #   - 判定対象は .text だけ（JSON 全体を grep すると title やキー名にも当たる）
+            #   - 判定対象は本文だけ（env から直接見る。ファイル依存にすると、ワークスペースが
+            #     消えたときに LLM 判定と一緒に道連れで外れる＝実際にそれで取りこぼした）
             #   - 素の "?" は入れない（本文中の URL のクエリ文字列だけで発火してしまうため）
-            if jq -r '.text' mention-assign/input.json \
+            if printf '%s' "$TEXT" \
                | grep -qiE 'cc[:：]|お願い|ください|下さい|依頼|ご確認|ご判断|ご相談|レビュー|承認|いかがでしょう|どう(思|し)ますか|ますか？|ですか？'; then
               picked="$CANDIDATES"
             fi

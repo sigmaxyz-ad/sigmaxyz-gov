@@ -1,0 +1,36 @@
+# Code Owners — sigmaxyz-ad AE repositories
+#
+# 設計方針 (2026-05-24 配布):
+# - 重要パス (workflows / actions / _claude / CLAUDE.md / policies / infra / secrets /
+#   dependabot.yml / renovate / SECURITY / LICENSE / .env* / branch protection 等)
+#   は CODEOWNER の review を必須にして、bot の admin bypass を緩衝する
+# - それ以外のパスは branch protection の bypass actor 登録 + bot ワークフローの
+#   ALLOWED_RE 二重防御で auto-merge 可能とする
+# - 新規リポは _template から派生して本テンプレートを継承する
+#   (bootstrap.py の CODEOWNERS OWNER 置換対応は別 follow-up)
+# - 参照: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# === GitHub Actions / workflow 系: コード実行可能、改ざんで bot 経路汚染 ===
+.github/workflows/           @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/actions/             @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/CODEOWNERS           @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/branch-protection*   @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/dependabot.yml       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/renovate.json        @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/renovate.json5       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+
+# === AI 制御ファイル: 改ざんで bot 動作・権限境界が変わる ===
+CLAUDE.md                    @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+_claude/                     @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+
+# === セキュリティ・運用設定 ===
+policies/                    @mokuda-sx @sx-tiwano
+infra/                       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+secrets/                     @mokuda-sx @sx-tiwano
+SECURITY.md                  @mokuda-sx @sx-tiwano
+LICENSE                      @mokuda-sx @sx-tiwano
+.env*                        @mokuda-sx @sx-tiwano
+
+
+# === 運用 runbook: AD チーム全員に可視化 (issue #35 / #37) ===
+/docs/runbooks/      @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad

@@ -58,18 +58,29 @@ jobs:
       CLAUDE_DISALLOWED_TOOLS: 'Bash(rm -rf*),Bash(rm -fr*),Bash(sudo*),Bash(chmod 777*),Bash(curl*--data*),Bash(wget*--post-data*),Bash(*aws*configure*),Bash(*gcloud*),Bash(*gsutil*),Bash(*bq *),Bash(*git*config*--global*),Bash(*git*push*--force*),Bash(*git*reset*--hard*origin*)'
     steps:
       # ── トリガー本人を解決し、本人の seat OAuth と PAT を選択（どちらも単一受益者＝本人） ──
-      - name: Resolve triggering user → personal seat OAuth + PAT
-        id: tok
+      # 本人の suffix を先に確定する（次ステップで secrets の動的キーに渡すため）。
+      - name: Resolve triggering actor
+        id: who
         env:
-          ALL_SECRETS: ${{ toJSON(secrets) }}
           ACTOR: ${{ github.event.comment.user.login || github.event.review.user.login || github.event.issue.user.login || github.actor }}
         run: |
           set -euo pipefail
-          SUFFIX="$(printf '%s' "$ACTOR" | tr '[:lower:]-' '[:upper:]_')"
+          echo "actor=$ACTOR" >> "$GITHUB_OUTPUT"
+          echo "suffix=$(printf '%s' "$ACTOR" | tr '[:lower:]-' '[:upper:]_')" >> "$GITHUB_OUTPUT"
+
+      # secrets は動的キーで「本人の2件だけ」を取る。toJSON(secrets) は使わない
+      # （リポから見える全 secret を1つの env に展開してしまい、爆発半径を最大化するため。ae-infra#277）。
+      - name: Select personal seat OAuth + PAT
+        id: tok
+        env:
+          ACTOR: ${{ steps.who.outputs.actor }}
+          SUFFIX: ${{ steps.who.outputs.suffix }}
+          OAUTH: ${{ secrets[format('CLAUDE_OAUTH_{0}', steps.who.outputs.suffix)] }}
+          PAT: ${{ secrets[format('GH_PAT_{0}', steps.who.outputs.suffix)] }}
+        run: |
+          set -euo pipefail
           OAUTH_KEY="CLAUDE_OAUTH_${SUFFIX}"
           PAT_KEY="GH_PAT_${SUFFIX}"
-          OAUTH="$(printf '%s' "$ALL_SECRETS" | jq -r --arg k "$OAUTH_KEY" '.[$k] // empty')"
-          PAT="$(printf '%s' "$ALL_SECRETS" | jq -r --arg k "$PAT_KEY" '.[$k] // empty')"
           echo "actor=$ACTOR" >> "$GITHUB_OUTPUT"
           echo "oauth_key=$OAUTH_KEY" >> "$GITHUB_OUTPUT"
           echo "pat_key=$PAT_KEY" >> "$GITHUB_OUTPUT"
@@ -107,7 +118,11 @@ jobs:
         if: steps.tok.outputs.enrolled == 'true'
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          # 履歴を全部取る。fetch-depth: 1 だと git merge-base / git diff base...head が
+          # `fatal: no merge base` になり、bot が「共通祖先の無い orphan ブランチ」と誤認する。
+          # 実害: ad-tasks#49 で「マージするとリポジトリのほぼ全内容が削除されます ⛔」という
+          # 誤警報を出し、実際には削除ゼロの PR を 12 日間止めた（2026-07-16〜07-28）。
+          fetch-depth: 0
           token: ${{ env.SEL_PAT }}
 
       # ── モデル選択：①本文の明示指定を最優先 → ②未指定なら内容から自動判定 ──
@@ -187,7 +202,7 @@ jobs:
         if: steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
         uses: actions/checkout@v6
         with:
-          fetch-depth: 1
+          fetch-depth: 0   # 上と同じ理由（履歴が無いと差分判断を誤る）
           token: ${{ env.SEL_PAT }}
           clean: true
 

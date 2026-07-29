@@ -107,16 +107,26 @@ jobs:
           finish "${#cands[@]}" "${cands[*]}"
 
       # ── ② 投稿者の seat を解決（@claude と同じ方式。未登録ならルール判定にフォールバック）──
+      # 本人の suffix を先に確定する（次ステップで secrets の動的キーに渡すため）。
+      - name: Resolve actor suffix
+        id: who
+        if: steps.cand.outputs.count != '0'
+        env:
+          ACTOR: ${{ github.event.comment.user.login || github.event.issue.user.login }}
+        run: |
+          set -euo pipefail
+          echo "actor=$ACTOR" >> "$GITHUB_OUTPUT"
+          echo "suffix=$(printf '%s' "$ACTOR" | tr '[:lower:]-' '[:upper:]_')" >> "$GITHUB_OUTPUT"
+
+      # secrets は動的キーで「本人の1件だけ」を取る。toJSON(secrets) は使わない（ae-infra#277）。
       - name: Resolve actor seat
         id: seat
         if: steps.cand.outputs.count != '0'
         env:
-          ALL_SECRETS: ${{ toJSON(secrets) }}
-          ACTOR: ${{ github.event.comment.user.login || github.event.issue.user.login }}
+          ACTOR: ${{ steps.who.outputs.actor }}
+          OAUTH: ${{ secrets[format('CLAUDE_OAUTH_{0}', steps.who.outputs.suffix)] }}
         run: |
           set -euo pipefail
-          SUFFIX="$(printf '%s' "$ACTOR" | tr '[:lower:]-' '[:upper:]_')"
-          OAUTH="$(printf '%s' "$ALL_SECRETS" | jq -r --arg k "CLAUDE_OAUTH_${SUFFIX}" '.[$k] // empty')"
           if [ -z "$OAUTH" ]; then
             echo "::notice::$ACTOR は seat 未登録 — ルール判定にフォールバック"
             echo "enrolled=false" >> "$GITHUB_OUTPUT"

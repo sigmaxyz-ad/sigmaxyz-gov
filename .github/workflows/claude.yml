@@ -113,9 +113,51 @@ jobs:
             登録後に再度 @claude してください（詳細: ae-infra/runbooks/claude-bot-per-user-seat.md）。" || true
           fi
 
+      # ── 本人 PAT がこのリポを含んでいるか事前確認（ae-infra: ws-template で実測した失敗）──
+      # claude-code-action は起動時に github_token で getCollaboratorPermissionLevel を叩く。
+      # fine-grained PAT のリポジトリ選択にこのリポが入っていないと 403 になり、
+      # **モデル実行に入る前に約1秒で失敗**する（ログには「Failed to check permissions」だけが出て、
+      # 原因が PAT のスコープ漏れだと分からない）。実測 2026-07-30: ws-template で 2 名義とも再現。
+      # ここで先に検出して、赤バツではなく「何をすればよいか」を本人に案内する。
+      - name: Verify PAT covers this repository
+        id: patscope
+        if: steps.tok.outputs.enrolled == 'true'
+        env:
+          GH_TOKEN: ${{ env.SEL_PAT }}
+          ACTOR: ${{ steps.tok.outputs.actor }}
+        run: |
+          set -uo pipefail
+          if gh api "repos/${{ github.repository }}/collaborators/$ACTOR/permission" \
+               --jq '.permission' >/dev/null 2>&1; then
+            echo "covered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "covered=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::$ACTOR の PAT は ${{ github.repository }} を含んでいません — bot をスキップして案内します。"
+          fi
+
+      # ── PAT のスコープ漏れを本人に案内（赤バツにしない）──
+      - name: Guide PAT scope gap
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          NUM="${{ github.event.issue.number || github.event.pull_request.number }}"
+          if [ -n "$NUM" ]; then
+            gh issue comment "$NUM" --repo "${{ github.repository }}" --body \
+              "@${{ steps.tok.outputs.actor }} **あなたの PAT がこのリポジトリを含んでいないため、@claude を起動できませんでした。**
+
+          このリポ（\`${{ github.repository }}\`）を PAT の対象に追加してください。
+
+          **手順**: GitHub の Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → 使っているトークン → **Repository access** に \`${{ github.repository }}\` を追加 → Update
+
+          追加後、もう一度 @claude と書いてください。（org secret の再登録は不要です。トークンの値は変わりません。）
+
+          > 管理者が代理で直すことはできません（PAT は本人の資格情報で、org 管理者は承認・取り消しのみ可能）。" || true
+          fi
+
       # ── 本人 PAT でチェックアウト（git 操作も本人名義・本人権限） ──
       - name: Checkout
-        if: steps.tok.outputs.enrolled == 'true'
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true'
         uses: actions/checkout@v6
         with:
           # 履歴を全部取る。fetch-depth: 1 だと git merge-base / git diff base...head が
@@ -132,7 +174,7 @@ jobs:
       #   さらに --fallback-model claude-opus-4-8 で Fable 等が使えない seat でも Opus に自動降格。
       - name: Select model (explicit override → content heuristic)
         id: model
-        if: steps.tok.outputs.enrolled == 'true'
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true'
         env:
           BODY: ${{ github.event.comment.body || github.event.review.body || github.event.issue.body || github.event.issue.title || '' }}
         run: |
@@ -183,7 +225,7 @@ jobs:
       #   --fallback-model は overload/unavailable 等の一時エラー時に Opus へ切替（billing/auth 系は対象外）。
       - name: Run Claude Code (selected model)
         id: run_primary
-        if: steps.tok.outputs.enrolled == 'true'
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true'
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
@@ -199,7 +241,7 @@ jobs:
       #   Fable 実行が「一部編集した後に失敗」した場合でも、Opus 再実行が汚れたツリー上から
       #   再開して二重コミット等を起こさないよう、canonical な状態を取り直す。
       - name: Reset workspace before Opus retry
-        if: steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
         uses: actions/checkout@v6
         with:
           fetch-depth: 0   # 上と同じ理由（履歴が無いと差分判断を誤る）
@@ -211,7 +253,7 @@ jobs:
       #   （公式仕様: overload/unavailable/非リトライ server error のみ対象）。その保険として明示降格。
       - name: Retry with Opus (Fable unavailable for this seat)
         id: run_opus_fallback
-        if: steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
+        if: steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true' && steps.run_primary.outcome == 'failure' && steps.model.outputs.is_fable == 'true'
         uses: anthropics/claude-code-action@v1
         with:
           github_token: ${{ env.SEL_PAT }}
@@ -223,7 +265,7 @@ jobs:
 
       # ── 本来の失敗（Opus 保険に該当しない or 再実行も失敗）はジョブを赤にして隠蔽しない ──
       - name: Propagate genuine failure
-        if: ${{ steps.tok.outputs.enrolled == 'true' && steps.run_primary.outcome == 'failure' && !(steps.model.outputs.is_fable == 'true' && steps.run_opus_fallback.outcome == 'success') }}
+        if: ${{ steps.tok.outputs.enrolled == 'true' && steps.patscope.outputs.covered == 'true' && steps.run_primary.outcome == 'failure' && !(steps.model.outputs.is_fable == 'true' && steps.run_opus_fallback.outcome == 'success') }}
         run: |
           echo "::error::Claude 実行が失敗しました（Opus フォールバック対象外、または Opus 再実行も失敗）。ジョブログを確認してください。"
           exit 1

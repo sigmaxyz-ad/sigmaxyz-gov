@@ -1,0 +1,87 @@
+# 改行コードの正規化
+#
+# 目的1: シェルスクリプトが CRLF になるのを防ぐ。
+#   Coder / 管理者 VM（Linux）で CRLF の .sh を実行すると
+#   `$'\r': command not found` や shebang 解釈の失敗で動かない。
+# 目的2: Windows で「幻の差分」を出さない。
+#   ツール/エディタが LF で書き戻すたび `git status` に実体ゼロの M が出続け、
+#   repo-auto-sync の「ローカル変更ありスキップ」誤爆の原因にもなる。
+
+# 既定: テキストは自動判別し、リポジトリ内も作業コピーも LF
+#
+# eol=lf を省略してはいけない。作業コピーの改行は core.eol が決め、その既定値は
+# native（Windows = CRLF）。`* text=auto` だけでは作業コピーは CRLF のままで、
+# 上記「幻の差分」は消えない（core.autocrlf の true/false に無関係・2026-07-30 実測）。
+* text=auto eol=lf
+
+# 実行されるスクリプトは作業コピーでも必ず LF
+*.sh   text eol=lf
+*.bash text eol=lf
+
+# PowerShell / バッチは Windows 側で実行されるので CRLF
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# バイナリ（差分を取らせない・改行変換もさせない）
+#
+# text=auto の自動判別は「先頭に NUL バイトが無ければテキスト」なので、NUL を含まない
+# バイナリは LF 変換され得る。実在の主要形式は NUL を含むため実害はほぼ無いが、
+# テンプレとして派生リポの堅牢性を上げるため主要形式は明示しておく。
+# ※ .svg は XML テキストなので binary に入れない（差分を取れるほうが有用）。
+
+# 画像
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.webp binary
+*.bmp  binary
+*.tiff binary
+
+# 文書
+*.pdf  binary
+*.xlsx binary
+*.pptx binary
+*.docx binary
+
+# フォント
+*.woff  binary
+*.woff2 binary
+*.ttf   binary
+*.otf   binary
+*.eot   binary
+
+# 音声 / 動画
+*.mp4  binary
+*.mp3  binary
+*.wav  binary
+*.mov  binary
+*.avi  binary
+*.webm binary
+
+# 圧縮 / アーカイブ
+*.zip binary
+*.gz  binary
+*.tar binary
+*.tgz binary
+*.7z  binary
+*.jar binary
+*.bz2 binary
+
+# 実行 / コンパイル済
+*.exe   binary
+*.dll   binary
+*.so    binary
+*.dylib binary
+*.bin   binary
+*.class binary
+*.pyc   binary
+
+# データベース
+*.db      binary
+*.sqlite  binary
+*.sqlite3 binary

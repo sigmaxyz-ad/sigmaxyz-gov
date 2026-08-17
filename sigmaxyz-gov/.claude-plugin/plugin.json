@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "sigmaxyz-gov",
   "displayName": "SIGMAXYZ Governance",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "全社強制の安全ガード(書込制限/秘密保護/DLP/破壊防止/外部流出防止/透明性宣言)。本体は固定で、強度は組織設定の env で block/warn/off を切り替える。秘密保護・破壊防止・DLP は弱められない",
   "author": {
     "name": "SIGMAXYZ AD Team"

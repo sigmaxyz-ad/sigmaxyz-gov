@@ -10,10 +10,24 @@ const inp = H.readInput();
 const MODE = H.guardMode('personal-path', 'warn');
 if (MODE === 'off') H.allow();
 
-// 既定は Write/Edit/NotebookEdit のみ（読み取りコマンドで発火しない）。policy で Bash 等を追加可。
-const SCAN = H.guardParam('personal-path', 'scan', ['Write', 'Edit', 'NotebookEdit']);
+// 既定は WRITE 系（Claude=Write/Edit/NotebookEdit・Codex=apply_patch・Gemini=write_file/replace）と
+// シェル系。シェルは「実体のある書込み」を含むコマンドのみ検査し、`ls C:\Users\<名>\...` 等の
+// 読み取り参照では発火しない（過剰反応の是正）。policy で scan を上書き可。
+const SCAN = H.guardParam('personal-path', 'scan', H.WRITE_TOOLS.concat(H.SHELL_TOOLS));
 if (!SCAN.includes(inp.toolName)) H.allow();
-const text = inp.toolName === 'Bash' ? (inp.command || '') : (inp.content || '');
+// 記録・履歴のように個人パスを正当に含む領域は policy(exclude)で対象外にできる。
+// 対象ファイルが一意に定まる書込にのみ適用する（シェルは対象が定まらず抜け道になるため除外しない）。
+if (!H.isShellTool(inp.toolName) && H.isExcludedPath('personal-path', (inp.filePaths && inp.filePaths.length) ? inp.filePaths : inp.filePath)) H.allow();
+// シェルは書込コマンドに限定して検査（heredoc 本体・echo/printf の > リダイレクト・sed -i 等を捕捉しつつ、
+// 純粋な読み取りコマンドは検査対象外にして誤検知を防ぐ）。
+// apply_patch は hooklib が「追加された行」を content に正規化済み（#119）。
+// シェル経由の apply_patch では、切り出した追加行も検査対象に含める（コマンド側からは見えないため）。
+const text = H.isShellTool(inp.toolName)
+  ? [
+      H.bashHasRealWrite(inp.command || '') ? (inp.command || '') : '',
+      inp.patch ? (inp.content || '') : '',
+    ].filter(Boolean).join('\n')
+  : (inp.content || '');
 if (!text.trim()) H.allow();
 
 const userName = (os.userInfo && os.userInfo().username) || path.basename(os.homedir() || '') || '';

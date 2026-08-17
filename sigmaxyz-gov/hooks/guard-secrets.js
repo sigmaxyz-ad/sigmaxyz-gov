@@ -5,14 +5,15 @@
 const H = require('./lib/hooklib');
 
 const inp = H.readInput();
-if (inp.toolName !== 'Bash') H.allow();
+// シェル系ツール（Claude/Codex=Bash・Gemini=run_shell_command）を別名表で判定（#119）
+if (!H.isShellTool(inp.toolName)) H.allow();
 const MODE = H.guardMode('secrets', 'block');
 if (MODE === 'off') H.allow();
 const cmd = (inp.command || '').trim();
 if (!cmd) H.allow();
 
 const SECRET_FILE = /(^|[\/\s"'=])(\.env(\.[\w-]+)?|[\w.\-\/]*\.(pem|key|p12|pfx)|id_rsa|id_ed25519|credentials\.json|service[_-]?account[\w-]*\.json)(["'\s]|$)/i;
-const GIT_STAGING = /\bgit\s+(add|commit\s+-a|commit\s+--all|stash)\b/;
+const GIT_STAGING = /\bgit\s+(add|commit\s+-a[a-z]*|commit\s+--all|stash)\b/;
 
 if (GIT_STAGING.test(cmd)) {
   if (SECRET_FILE.test(cmd)) {

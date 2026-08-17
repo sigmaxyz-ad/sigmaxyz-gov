@@ -1,6 +1,6 @@
 {
-  "version": "2.0",
-  "origin": "ae-core/policies/dlp_patterns.json (v1.0) を流用し、秘密情報・API キーパターンを追加",
+  "version": "2.2",
+  "origin": "ae-core/policies/dlp_patterns.json (v1.0) を流用し、秘密情報・API キーパターンを追加。v2.1: generic_secret_assignment の (?i) インラインフラグ(JS で無効・死にパターン化)を flags:\"i\" へ是正 / v2.2: OAuth アクセストークン(ya29)・SA 鍵 JSON・OAuth クライアントシークレット(GOCSPX)・Slack・Asana PAT・JWT を追加（ad-tasks#61 の実運用で、実在する資格情報がどれも未検出だったため）。 レビュー反映: asana_pat の GID 桁数を可変化（16桁固定は実トークンを取り逃す）／github_pat_・xapp- を追加。 xapp- の version 部を [0-9]+ に（1桁固定だと将来 2桁化で取り逃す）。",
   "patterns": [
     {
       "name": "my_number",
@@ -8,7 +8,11 @@
       "pattern": "\\b\\d{4}[-\\s]?\\d{4}[-\\s]?\\d{4}\\b",
       "severity": "warning",
       "action": "warn",
-      "escalate_keywords": ["マイナンバー", "個人番号", "マイナ"]
+      "escalate_keywords": [
+        "マイナンバー",
+        "個人番号",
+        "マイナ"
+      ]
     },
     {
       "name": "credit_card",
@@ -16,7 +20,14 @@
       "pattern": "\\b(?:\\d{4}[-\\s]?){3}\\d{4}\\b",
       "severity": "warning",
       "action": "warn",
-      "escalate_keywords": ["カード", "クレジット", "card", "visa", "master", "amex"]
+      "escalate_keywords": [
+        "カード",
+        "クレジット",
+        "card",
+        "visa",
+        "master",
+        "amex"
+      ]
     },
     {
       "name": "jp_phone",
@@ -77,14 +88,78 @@
     {
       "name": "generic_secret_assignment",
       "description": "コード内のシークレット直書き（api_key/secret/password/token = \"...\"）",
-      "pattern": "(?i)(api[_-]?key|secret|password|passwd|token)\\s*[:=]\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']",
+      "pattern": "(api[_-]?key|secret|password|passwd|token)\\s*[:=]\\s*[\"'][A-Za-z0-9_\\-]{16,}[\"']",
+      "flags": "i",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "gcp_oauth_token",
+      "description": "Google OAuth アクセストークン（gcloud）",
+      "pattern": "ya29\\.[A-Za-z0-9_\\-]{20,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "gcp_sa_key_json",
+      "description": "GCP サービスアカウント鍵 JSON",
+      "pattern": "\"type\"\\s*:\\s*\"service_account\"|\"private_key_id\"\\s*:",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "google_oauth_client_secret",
+      "description": "Google OAuth クライアントシークレット",
+      "pattern": "GOCSPX-[A-Za-z0-9_\\-]{10,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "slack_token",
+      "description": "Slack トークン",
+      "pattern": "xox[baprs]-[A-Za-z0-9\\-]{10,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "asana_pat",
+      "description": "Asana Personal Access Token（GID の桁数は可変）",
+      "pattern": "1/[0-9]{10,}:[A-Za-z0-9]{16,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "jwt_like",
+      "description": "JWT 形式の文字列。例示として文書に現れるため warn。**実在の JWT も stderr 警告のみで通過する**ことを承知のうえでの判断",
+      "pattern": "eyJ[A-Za-z0-9_\\-]{10,}\\.eyJ[A-Za-z0-9_\\-]{10,}\\.",
+      "severity": "warning",
+      "action": "warn"
+    },
+    {
+      "name": "github_fine_grained_pat",
+      "description": "GitHub fine-grained PAT",
+      "pattern": "github_pat_[A-Za-z0-9_]{20,}",
+      "severity": "critical",
+      "action": "block"
+    },
+    {
+      "name": "slack_app_token",
+      "description": "Slack app-level token（version 部は桁数を固定しない）",
+      "pattern": "xapp-[0-9]+-[A-Za-z0-9\\-]{10,}",
       "severity": "critical",
       "action": "block"
     }
   ],
   "keywords": {
     "description": "機密ラベルが付いた文書を外部へ出さない",
-    "blocked": ["社外秘", "Confidential", "極秘", "取扱注意", "マル秘", "部外秘"],
+    "blocked": [
+      "社外秘",
+      "Confidential",
+      "極秘",
+      "取扱注意",
+      "マル秘",
+      "部外秘"
+    ],
     "severity": "critical",
     "action": "block"
   }

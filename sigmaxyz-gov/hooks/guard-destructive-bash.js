@@ -5,7 +5,8 @@
 const H = require('./lib/hooklib');
 
 const inp = H.readInput();
-if (inp.toolName !== 'Bash') H.allow();
+// シェル系ツール（Claude/Codex=Bash・Gemini=run_shell_command）を別名表で判定（#119）
+if (!H.isShellTool(inp.toolName)) H.allow();
 const MODE = H.guardMode('destructive-bash', 'block');
 if (MODE === 'off') H.allow();
 const cmd = (inp.command || '').trim();

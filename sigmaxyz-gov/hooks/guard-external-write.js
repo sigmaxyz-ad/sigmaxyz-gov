@@ -22,7 +22,7 @@ const reasonBase =
 if (inp.toolName && EXTERNAL_TOOL.test(inp.toolName)) {
   H.enforce(MODE, `${reasonBase}\n  ツール: ${inp.toolName}`);
 }
-if (inp.toolName === 'Bash') {
+if (H.isShellTool(inp.toolName)) {
   const cmd = inp.command || '';
   for (const re of EXTERNAL_BASH) {
     if (re.test(cmd)) H.enforce(MODE, `${reasonBase}\n  コマンド: ${cmd.slice(0, 200)}`);

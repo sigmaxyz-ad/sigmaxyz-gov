@@ -1,8 +1,10 @@
 {
-    "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
-    "name": "sigmaxyz-gov",
-    "displayName": "SIGMAXYZ Governance",
-    "version": "0.3.0",
-    "description": "全社ガバナンス安全ガード（policy 駆動エンジン版）。執行=TM/実体は固定・方針=AD が managed settings の env(GOV_POLICY_JSON / GOV_<GUARD>_MODE)で block/warn/off を即時調整。既定は是正版（過剰反応なし・秘密/破壊/DLP は維持）。",
-    "author": { "name": "SIGMAXYZ AD Team" }
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "sigmaxyz-gov",
+  "displayName": "SIGMAXYZ Governance",
+  "version": "0.3.0",
+  "description": "全社強制の安全ガード(書込制限/秘密保護/DLP/破壊防止/外部流出防止/透明性宣言)。本体は固定で、強度は組織設定の env で block/warn/off を切り替える。秘密保護・破壊防止・DLP は弱められない",
+  "author": {
+    "name": "SIGMAXYZ AD Team"
+  }
 }

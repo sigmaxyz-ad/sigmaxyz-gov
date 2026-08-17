@@ -20,8 +20,14 @@ const EXTERNAL_SEND = /(gmail.*(send|draft)|create_draft|send_message|slack.*(po
 
 let target = '';
 let context = '';
-if (['Write', 'Edit', 'NotebookEdit'].includes(inp.toolName)) { target = inp.content || ''; context = `${inp.toolName} の書込内容`; }
-else if (inp.toolName === 'Bash') { target = inp.command || ''; context = 'Bash コマンド文字列'; }
+// ツール名は hooklib の別名表で判定する（Codex=apply_patch / Gemini=write_file 等。#119）
+if (H.isWriteTool(inp.toolName)) { target = inp.content || ''; context = `${inp.toolName} の書込内容`; }
+else if (H.isShellTool(inp.toolName)) {
+  // シェル経由の apply_patch では、残りのコマンド文字列に加えて「パッチの追加行」も検査する。
+  // 追加行に限るのはツール呼び出し経路と同じ理由（削除行まで見ると秘密を消す修正を妨げる）。
+  target = [inp.command || '', inp.patch ? (inp.content || '') : ''].filter(Boolean).join('\n');
+  context = `${inp.toolName} コマンド文字列`;
+}
 else if (EXTERNAL_SEND.test(inp.toolName)) { target = JSON.stringify(inp.toolInput || {}); context = `外部送信ツール ${inp.toolName} の送信内容`; }
 else { H.allow(); }
 
@@ -31,7 +37,9 @@ const blockHits = [];
 const warnHits = [];
 for (const p of cfg.patterns || []) {
   let re;
-  try { re = new RegExp(p.pattern, 'g'); } catch (_) { continue; }
+  // flags は per-pattern 指定（例 "i"）。JS RegExp は (?i) 等のインラインフラグを解釈できず
+  // throw するため、大小無視は必ず p.flags で与える。'g' は常に付与（重複排除）。
+  try { re = new RegExp(p.pattern, 'g' + String(p.flags || '').replace(/g/g, '')); } catch (_) { continue; }
   const found = target.match(re);
   if (found && found.length) {
     const entry = { name: p.name, desc: p.description, count: found.length };

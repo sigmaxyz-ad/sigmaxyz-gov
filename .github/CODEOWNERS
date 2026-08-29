@@ -11,26 +11,26 @@
 # - 参照: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
 
 # === GitHub Actions / workflow 系: コード実行可能、改ざんで bot 経路汚染 ===
-.github/workflows/           @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/actions/             @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/CODEOWNERS           @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/branch-protection*   @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/dependabot.yml       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/renovate.json        @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-.github/renovate.json5       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+.github/workflows/           @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/actions/             @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/CODEOWNERS           @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/branch-protection*   @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/dependabot.yml       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/renovate.json        @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/renovate.json5       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 
 # === AI 制御ファイル: 改ざんで bot 動作・権限境界が変わる ===
-CLAUDE.md                    @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-_claude/                     @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+CLAUDE.md                    @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+_claude/                     @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 
 # === セキュリティ・運用設定 ===
-policies/                    @mokuda-sx @sx-tiwano
-infra/                       @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
-secrets/                     @mokuda-sx @sx-tiwano
-SECURITY.md                  @mokuda-sx @sx-tiwano
-LICENSE                      @mokuda-sx @sx-tiwano
-.env*                        @mokuda-sx @sx-tiwano
+policies/                    @sigmaxyz-ad/ad-admins
+infra/                       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+secrets/                     @sigmaxyz-ad/ad-admins
+SECURITY.md                  @sigmaxyz-ad/ad-admins
+LICENSE                      @sigmaxyz-ad/ad-admins
+.env*                        @sigmaxyz-ad/ad-admins
 
 
 # === 運用 runbook: AD チーム全員に可視化 (issue #35 / #37) ===
-/docs/runbooks/      @mokuda-sx @sx-tiwano @sigmaxyz-ad/ad
+/docs/runbooks/      @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad

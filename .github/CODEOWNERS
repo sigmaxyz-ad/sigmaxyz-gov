@@ -13,8 +13,8 @@
 # === GitHub Actions / workflow 系: コード実行可能、改ざんで bot 経路汚染 ===
 .github/workflows/           @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 .github/actions/             @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-.github/CODEOWNERS           @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-.github/branch-protection*   @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+.github/CODEOWNERS           @sigmaxyz-ad/ad-admins
+.github/branch-protection*   @sigmaxyz-ad/ad-admins
 .github/dependabot.yml       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 .github/renovate.json        @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 .github/renovate.json5       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad

@@ -24,12 +24,12 @@ CLAUDE.md                    @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 _claude/                     @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
 
 # === セキュリティ・運用設定 ===
-policies/                    @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+policies/                    @sigmaxyz-ad/ad-admins
 infra/                       @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-secrets/                     @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-SECURITY.md                  @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-LICENSE                      @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
-.env*                        @mokuda-sx @aywatanabe-lgtm @sigmaxyz-ad/ad
+secrets/                     @sigmaxyz-ad/ad-admins
+SECURITY.md                  @sigmaxyz-ad/ad-admins
+LICENSE                      @sigmaxyz-ad/ad-admins
+.env*                        @sigmaxyz-ad/ad-admins
 
 
 # === 運用 runbook: AD チーム全員に可視化 (issue #35 / #37) ===
